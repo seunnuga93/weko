@@ -111,6 +111,8 @@ class SchemaConverter:
                                 atrb.name),
                             ref=None if not hasattr(atrb, 'ref') else atrb.ref,
                             use=None if not hasattr(atrb, 'use') else atrb.use)
+                        if is_get_only_target_namespace and attrd.get('name', None) == 'xml-lang':
+                            continue
                         if not isinstance(atrb, XsdAnyAttribute):
                             if 'lang' not in atrb.name:
                                 attrd.update(get_element_type(atrb.type))
@@ -613,27 +615,46 @@ class SchemaTree:
                 for k, v in dct.items():
                     if isinstance(v, dict):
                         # check if @value has value
-                        node_val = v.get('@value', None)
+                        ddi_schema = self._schema_name == current_app.config[
+                            'WEKO_SCHEMA_DDI_SCHEMA_NAME']
+                        node_val = v.get(self._v, None)
+                        node_att = v.get(self._atr, None)
                         if isinstance(node_val, list) and node_val[0]:
                             # get index of None value
                             lst_none_idx = [idx for idx, val in
                                             enumerate(node_val[0]) if
                                             val is None or val == '']
-                            if self._schema_name != current_app.config[
-                                    'WEKO_SCHEMA_DDI_SCHEMA_NAME']:
+                            if not ddi_schema:
                                 if len(lst_none_idx) > 0:
                                     # delete all None element in @value
-                                    for i in lst_none_idx:
-                                        del node_val[0][i]
-                                    # delete all None element in all @attributes
+                                    lst_val_idx = list(set(
+                                        range(len(node_val[0])))
+                                        - set(lst_none_idx))
+                                    node_val[0] = [val for idx, val in
+                                                   enumerate(node_val[0])
+                                                   if idx in lst_val_idx]
+                                    # delete all None element in all
+                                    # @attributes
                                     for key, val in v.get(self._atr,
                                                           {}).items():
-                                        for i in lst_none_idx:
-                                            del val[0][i]
+                                        val[0] = [val for idx, val
+                                                  in enumerate(val[0])
+                                                  if idx in lst_val_idx]
                             else:
                                 if not v.get(self._atr, {}).items():
-                                    for i in lst_none_idx:
-                                        del node_val[0][i]
+                                    lst_val_idx = \
+                                        list(set(range(len(node_val[0])))
+                                             - set(lst_none_idx))
+                                    node_val[0] = [v for idx, v
+                                                   in enumerate(node_val[0])
+                                                   if idx in lst_val_idx]
+                            clean[k] = v
+                        elif ddi_schema and not node_val and node_att and \
+                                node_att[next(iter(node_att))][0]:
+                            # Add len(node_att) None elements to value
+                            # in order to display att later
+                            v[self._v] = [[None] * len(
+                                node_att[next(iter(node_att))][0])]
                             clean[k] = v
                         else:
                             nested = clean_none_value(v)
@@ -755,7 +776,8 @@ class SchemaTree:
                 # get value of the combination between record and \
                 # mapping data that is inited at __init__ function
                 mpdic = value_item_parent.get(
-                    self._schema_name) if self._schema_name in value_item_parent else ''
+                    self._schema_name) \
+                    if self._schema_name in value_item_parent else ''
                 if mpdic is "" or (
                     self._ignore_list and key_item_parent
                         in self._ignore_list):
@@ -924,22 +946,23 @@ class SchemaTree:
                             else:
                                 nodes = [node]
                                 if bool(node) and not [i for i in node.values()
-                                                       if
-                                                       i and (not i.get(
-                                                           self._v) or not i.get(
-                                                           self._atr))]:
+                                                       if i and (not i.get(self._v)
+                                                                 or not i.get(self._atr))]:
                                     multi = max(
                                         [len(attr) for n in node.values()
                                          if n and n.get(self._atr)
                                          and isinstance(n.get(self._atr), dict)
-                                         for attr in n.get(self._atr).values()])
+                                         for attr
+                                         in n.get(self._atr).values()])
                                     if int(multi) > 1:
-                                        multi_nodes = [copy.deepcopy(node) for _
-                                                       in
+                                        multi_nodes = [copy.deepcopy(node)
+                                                       for _ in
                                                        range(int(multi))]
-                                        for idx, item in enumerate(multi_nodes):
+                                        for idx, item in enumerate(
+                                                multi_nodes):
                                             for nd in item.values():
-                                                nd[self._v] = [nd[self._v][idx]]
+                                                nd[self._v] = \
+                                                    [nd[self._v][idx]]
                                                 for key in nd.get(self._atr):
                                                     nd.get(self._atr)[key] = [
                                                         nd.get(self._atr)[key][
@@ -1273,7 +1296,6 @@ class SchemaTree:
                 nlst.append({k: nv})
         return nlst
         # end
-        # ---------------------------------------------------------------------------------------------------
 
 
 def cache_schema(schema_name, delete=False):

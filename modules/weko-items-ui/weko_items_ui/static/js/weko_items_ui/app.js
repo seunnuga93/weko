@@ -7,8 +7,8 @@ require([
     window.location.href = '/items/' + $(this).val();
   });
   $("#btnModalClose").click(function () {
-    $('#myModal').modal('toggle');
-    $("div.modal-backdrop").remove();
+    //Process close 'Add Author' or 'Import Author' modal.
+    window.appAuthorSearch.namespace.isCloseAuthorModal();
   });
   $("#meta-search-close").click(function () {
     $('#meta-search').modal('toggle');
@@ -521,7 +521,7 @@ function toObject(arr) {
   // Bootstrap it!
   angular.element(document).ready(function () {
     function WekoRecordsCtrl($scope, $rootScope, InvenioRecordsAPI) {
-      $scope.currentUrl = '';
+      $scope.currentUrl = window.location.pathname + window.location.search;
       $scope.resourceTypeKey = "";
       $scope.groups = [];
       $scope.filemeta_keys = [];
@@ -533,6 +533,7 @@ function toObject(arr) {
       $scope.feedback_emails = []
       $scope.render_requirements = false;
       $scope.error_list = [];
+      $scope.required_list = [];
       $scope.usageapplication_keys = [];
       $scope.outputapplication_keys = [];
       $scope.authors_keys = [];
@@ -552,8 +553,14 @@ function toObject(arr) {
           uri : 'contributorAffiliationURI'
         }
       ]
+      $scope.identifiers = 'nameIdentifiers'
+      $scope.identifier_mapping = 'nameIdentifier'
+      $scope.scheme_identifier_mapping = 'nameIdentifierScheme'
+      $scope.uri_identifier_mapping = 'nameIdentifierURI'
+      $scope.scheme_affiliation_mapping = ['affiliationNameIdentifierScheme', 'contributorAffiliationScheme']
       $scope.sub_item_scheme = ['nameIdentifierScheme', 'affiliationNameIdentifierScheme', 'contributorAffiliationScheme']
       $scope.sub_item_uri = ['nameIdentifierURI', 'affiliationNameIdentifierURI', 'contributorAffiliationURI']
+      $scope.sub_item_id = ['nameIdentifier', 'affiliationNameIdentifier', 'contributorAffiliation']
       $scope.previousNumFiles = 0;
 
       $scope.searchFilemetaKey = function () {
@@ -655,6 +662,85 @@ function toObject(arr) {
         })
       }
 
+      /**
+       * Common handle for author identifier.
+       * @param identifier_key Identifier key
+       * @param handlerFunction Handler function
+       */
+      $scope.commonHandleForAuthorIdentifier = function (identifier_key, handlerFunction) {
+        var data_author = {};
+        let model = $rootScope.recordsVM.invenioRecordsModel;
+        $scope.data_author.map(function (item) {
+          data_author[item.scheme] = item.url;
+        })
+        if ($scope.authors_keys.indexOf(identifier_key) >= 0 ) {
+          let list_nameIdentifiers = [];
+          let uri_form_model = model[identifier_key];
+          if (!Array.isArray(uri_form_model)) {
+            if (Object.keys(uri_form_model).indexOf($scope.identifiers) >= 0) {
+              let name_identifier_form = uri_form_model[$scope.identifiers];
+              name_identifier_form.forEach(function (form) {
+                handlerFunction(form, data_author);
+                list_nameIdentifiers.push(form);
+              })
+            }
+          }
+          else if (Array.isArray(uri_form_model)) {
+            uri_form_model.forEach(function (object) {
+              if (Object.keys(object).indexOf($scope.identifiers) >= 0) {
+                let name_identifier_form = object[$scope.identifiers];
+                name_identifier_form.forEach(function (form) {
+                  handlerFunction(form, data_author);
+                  list_nameIdentifiers.push(form);
+                })
+              }
+            })
+          }
+
+          $scope.sub_item_scheme.map(function (scheme) {
+            if (Object.keys(model[identifier_key]).indexOf(scheme) >= 0) {
+              model[identifier_key].scheme = list_nameIdentifiers;
+            }
+          })
+        }
+
+      }
+
+      /**
+       * Clear author value
+       * @param e HTML event
+       * @param identifier_key Identifier key
+       */
+      $scope.clearAuthorValue = function (e, identifier_key) {
+        function handleClearAuthorValue(form) {
+          if (form.hasOwnProperty($scope.identifier_mapping) && form.hasOwnProperty($scope.uri_identifier_mapping)) {
+            form[$scope.identifier_mapping] = "";
+            form[$scope.uri_identifier_mapping] = "";
+          }
+                  }
+        $scope.commonHandleForAuthorIdentifier(identifier_key, handleClearAuthorValue);
+          }
+
+      /**
+       * Get Identifier URI value.
+       * @param e HTML event
+       * @param identifier_key Identifier key.
+       */
+      $scope.getIdentifierURIValue = function (e, identifier_key) {
+        function handleGetValueForAuthorIdentifierURI(form, data_author) {
+          let schemaMappingKey = $scope.scheme_identifier_mapping;
+          let idMappingKey = $scope.identifier_mapping;
+          let uriMappingKey = $scope.uri_identifier_mapping;
+          let isFillIdentifierURI = checkFillCreatorIdentifierURI(data_author[form[schemaMappingKey]], form[idMappingKey])
+          if (form[schemaMappingKey] && isFillIdentifierURI) {
+            form[uriMappingKey] = data_author[form[schemaMappingKey]].replace("##", form[idMappingKey]);
+          } else {
+            form[uriMappingKey] = data_author[form[schemaMappingKey]];
+            }
+        }
+        $scope.commonHandleForAuthorIdentifier(identifier_key, handleGetValueForAuthorIdentifierURI);
+      }
+
       $scope.initAuthorList = function () {
         $.ajax({
           url: '/api/items/author_prefix_settings',
@@ -730,7 +816,14 @@ function toObject(arr) {
                                 }
                               })
                             });
-                            author_form.items[searchTitleMap]['onChange'] = 'getValueAuthor(event)';
+                            if (typeof author_form.key === 'string') {
+                              let identifierKey = author_form.key.split('.')[0];
+                              if (scheme === $scope.scheme_identifier_mapping) {
+                                author_form.items[searchTitleMap]['onChange'] = 'clearAuthorValue($event,"' + identifierKey + '")';
+                              } else if ($scope.scheme_affiliation_mapping.indexOf(scheme) >= 0) {
+                                author_form.items[searchTitleMap]['onChange'] = 'getValueAuthor($event,"' + identifierKey + '")';
+                              }
+                            }
                           }
                         })
                       }
@@ -743,7 +836,29 @@ function toObject(arr) {
                   identifier_uri_form['readonly'] = true;
                 }
               })
+
+              $scope.sub_item_id.map(function(item) {
+               let items = author_form.items;
+                for (var i = 0; i < items.length; i++) {
+                 var key = items[i].key;
+                  if (typeof key === 'string') {
+                   let listKey = key.split('.');
+                    for (let index in listKey) {
+                      if (listKey[index] === item) {
+                       var identifier_id_form = items[i];
+                      }
+                    }
+                  }
             }
+
+                if (identifier_id_form && typeof author_form.key === 'string') {
+                 identifier_id_form['onChange'] = 'getIdentifierURIValue($event,"' + author_form.key.split('.')[0] + '")';
+                }
+              })
+            }
+      }
+      function checkFillCreatorIdentifierURI(nameIdentifierURI, nameIdentifier) {
+        return !!(nameIdentifierURI.slice(-2) === '##' && nameIdentifier);
       }
 
       $scope.searchUsageApplicationIdKey = function() {
@@ -1614,8 +1729,17 @@ function toObject(arr) {
       */
       $scope.recursiveSetCollapsedForForm = function (isCollapsed, forms) {
         angular.forEach(forms, function(val, key){
-          val["collapsed"] = isCollapsed;
-          val["required"] = !isCollapsed;
+          if ("key" in val && val.key) {
+            let sub_item;
+            if (val.key instanceof Array) {
+              sub_item = val.key.pop();
+            } else if (typeof(val.key) === 'string') {
+              sub_item = val.key.split(".").pop()
+            }
+            val["collapsed"] = isCollapsed && $scope.required_list.indexOf(sub_item) === -1;
+          } else {
+            val["collapsed"] = isCollapsed;
+          }
           if(val.hasOwnProperty('items') && val['items'] && val['items'].length > 0){
             $scope.recursiveSetCollapsedForForm(isCollapsed, val["items"]);
           }
@@ -1625,25 +1749,97 @@ function toObject(arr) {
       * Set required and collapsed for all root item.
       */
       $scope.setCollapsedAndRequiredForForm = function(){
+        $scope.prepareRequiredList();
         let requiredList = $rootScope.recordsVM.invenioRecordsSchema.required;
         let forms = $rootScope.recordsVM.invenioRecordsForm;
         let isCollapsed;
         angular.forEach(forms, function(val, key){
           isCollapsed = requiredList.indexOf(val.key) == -1;
-          val["collapsed"] = isCollapsed;
+          val["collapsed"] = isCollapsed && $scope.required_list.indexOf(val.key) === -1;
           if(val.hasOwnProperty('items') && val['items'] && val['items'].length > 0){
             $scope.recursiveSetCollapsedForForm(isCollapsed, val["items"]);
           }
         });
       }
 
+      /**
+      * Prepare required list for expand/collapse panel.
+      */
+      $scope.prepareRequiredList = function () {
+        let prepareRequiredList = function (json_data) {
+          let temp_key;
+
+          let pushToRequiredList = function (key) {
+              if ($scope.required_list.indexOf(key) === -1) {
+                $scope.required_list.push(key);
+              }
+
+              temp_key = key;
+          };
+
+          angular.forEach(json_data, function (val, key) {
+              if (val.required) {
+                  return pushToRequiredList(key);
+              } else if (val.items) {
+                  if (val.items.required) {
+                      return pushToRequiredList(key);
+                  } else if (prepareRequiredList(val.items.properties)) {
+                      return pushToRequiredList(key);
+                  }
+              } else if (val.properties) {
+                  if (prepareRequiredList(val.properties)) {
+                      return pushToRequiredList(key);
+                  }
+              }
+          });
+
+          return temp_key;
+        }
+
+        let json_data = $rootScope.recordsVM.invenioRecordsSchema;
+        if (json_data.required) {
+          $scope.required_list = $scope.required_list.concat(json_data.required);
+        }
+
+        if ($scope.error_list && $scope.error_list['either']) {
+          angular.forEach($scope.error_list['either'], function (val, key) {
+            let ids = [];
+            if (val instanceof Array) {
+              val.map(function(x) {
+                return x.split('.');
+              }).forEach(function(x) {
+                ids = ids.concat(x);
+              });
+            } else {
+              ids = val.split('.');
+            }
+            angular.forEach(ids, function (_val, _key) {
+              if ($scope.required_list.indexOf(_val) === -1) {
+                $scope.required_list.push(_val);
+              }
+            });
+          });
+        }
+
+        prepareRequiredList(json_data.properties);
+      }
+
       $scope.loadFilesFromSession = function () {
         //When switch language, Getting files uploaded.
-        let bucketFiles = JSON.parse(sessionStorage.getItem('files'));
-        let bucketEndpoints = JSON.parse(sessionStorage.getItem('endpoints'));
-        let bucketUrl = sessionStorage.getItem('url');
-        $scope.currentUrl = window.location.pathname + window.location.search;
-        if (bucketFiles && bucketEndpoints && $scope.currentUrl == bucketUrl){
+        let actionID = $("#activity_id").text();
+        let fileData = sessionStorage.getItem(actionID);
+        if (!fileData) {
+          $scope.setFilesModel();
+          return;
+        }
+        fileData = JSON.parse(fileData);
+        let bucketFiles = fileData['files'];
+        let bucketEndpoints = fileData['endpoints'];
+        let recordsModel = fileData['recordsModel'];
+        if (bucketFiles && bucketEndpoints) {
+          bucketFiles = JSON.parse(bucketFiles);
+          bucketEndpoints = JSON.parse(bucketEndpoints);
+          recordsModel = JSON.parse(recordsModel);
           bucketEndpoints.html = '';
           $rootScope.filesVM.files = bucketFiles;
           $rootScope.filesVM.invenioFilesEndpoints = bucketEndpoints;
@@ -1652,15 +1848,63 @@ function toObject(arr) {
               'invenio.records.endpoints.updated', bucketEndpoints
             );
           }
+          $scope.setFilesModel(recordsModel);
         }
       }
 
       $scope.storeFilesToSession = function () {
         //Add file uploaded to sessionStorage when uploaded processing done
         window.history.pushState("", "", $scope.currentUrl);
-        sessionStorage.setItem('files', JSON.stringify($rootScope.filesVM.files));
-        sessionStorage.setItem('endpoints', JSON.stringify($rootScope.filesVM.invenioFilesEndpoints));
-        sessionStorage.setItem('url', $scope.currentUrl);
+        let actionID = $("#activity_id").text();
+        let data = {
+          "files": JSON.stringify($rootScope.filesVM.files),
+          "endpoints": JSON.stringify($rootScope.filesVM.invenioFilesEndpoints),
+          "recordsModel": JSON.stringify($rootScope.recordsVM.invenioRecordsModel),
+        }
+        sessionStorage.setItem(actionID, JSON.stringify(data))
+      }
+
+      $scope.setFilesModel = function (recordsModel) {
+        setTimeout(function (){
+          let model = $rootScope.recordsVM.invenioRecordsModel;
+          $scope.searchFilemetaKey();
+          if(!$.isEmptyObject(recordsModel)){
+            $scope.filemeta_keys.forEach(function (filemeta_key) {
+              if($.isEmptyObject(recordsModel[filemeta_key])){
+                model[filemeta_key] = [{}];
+              } else {
+                model[filemeta_key] = recordsModel[filemeta_key];
+              }
+            });
+          }
+
+          let files = $rootScope.filesVM.files;
+          $scope.filemeta_keys.forEach(function (filemeta_key) {
+            for (let i = 0; i < model[filemeta_key].length; i++) {
+              if (model[filemeta_key][i]) {
+                let modelFile = model[filemeta_key][i];
+                files.forEach(function (file) {
+                  if (modelFile.filename === file.key
+                    && !$rootScope.isModelFileVersion(model[filemeta_key], file.version_id)) {
+                    modelFile.version_id = file.version_id;
+                  }
+                })
+              }
+            }
+          });
+
+        }, 3000);
+      }
+
+      $rootScope.isModelFileVersion = function (modelFileList, versionId) {
+        let rtnValue = false;
+        for (let i = 0; i < modelFileList.length; i++) {
+          if (modelFileList[i].version_id === versionId) {
+            rtnValue = true;
+            break;
+          }
+        }
+        return rtnValue;
       }
 
       $rootScope.$on('invenio.records.loading.stop', function (ev) {
@@ -1704,42 +1948,80 @@ function toObject(arr) {
         //Set required and collapsed for all root and sub item.
         $scope.setCollapsedAndRequiredForForm();
 
-        // Delay 1s after page render
-        setTimeout(function () {
+        // Delay 0.5s after page render
+        $scope.changePositionFileInterval = setInterval(function () {
           // Change position of File and Billing File
           $scope.changePositionFileName();
-        }, 1000);
+        }, 500);
+
+        // Resize main content widget after optional items are collapsed
+        setTimeout(function () {
+          $scope.resizeMainContentWidget();
+        }, 500)
       });
+
+      /**
+       * Resize main content widget after optional items are collapsed
+       */
+      $scope.resizeMainContentWidget = function () {
+        if (typeof widgetBodyGrid !== 'undefined') {
+          let mainContent = $('#main_contents');
+          let width = mainContent.data("gsWidth");
+          widgetBodyGrid.resizeWidget(mainContent, width, DEFAULT_WIDGET_HEIGHT);
+        }
+      }
 
       $scope.changePositionFileName = function () {
         let records = $rootScope.recordsVM.invenioRecordsForm;
         let depositionForm = $('invenio-records-form').find('form[name="depositionForm"]');
         $scope.searchFilemetaKey();
+        let fileFormElements = [];
+        let isClearInterval = false;
         $scope.filemeta_keys.forEach(function (filemeta_key) {
-          records.forEach(function(item,i){
-            if(item.key == filemeta_key){
-              // Move to top
-              depositionForm.find('bootstrap-decorator[form="schemaForm.form['+ i + ']"]').prependTo(depositionForm);
+          records.forEach(function (item, i) {
+            if (item.key == filemeta_key) {
+              let fileElement = depositionForm
+                .find('bootstrap-decorator[form="schemaForm.form[' + i + ']"]');
+              if (fileElement.length) {
+                fileFormElements.push(fileElement);
+              }
             }
           });
         });
+        if ($scope.filemeta_keys.length === 0) {
+          isClearInterval = true;
+        } else if (fileFormElements.length) {
+          fileFormElements.forEach(function (element) {
+            // Move to top
+            element.prependTo(depositionForm);
+          });
+          isClearInterval = true;
+        }
+        if (isClearInterval) {
+          clearInterval($scope.changePositionFileInterval);
+        }
       }
 
       $scope.addFileFormAndFill = function () {
         let model = $rootScope.recordsVM.invenioRecordsModel;
-        let schema = $rootScope.recordsVM.invenioRecordsSchema.properties;
         let filesUploaded = $rootScope.filesVM.files;
         $scope.searchFilemetaKey();
         $scope.filemeta_keys.forEach(function (filemeta_key) {
           for (var i = $scope.previousNumFiles; i < filesUploaded.length; i++) {
-            var fileInfo = new Object();
+            let fileInfo = {};
+            let fileData = filesUploaded[i];
+            // Do not add the thumbnail file info to the form file.
+            if (fileData.hasOwnProperty('is_thumbnail') && fileData['is_thumbnail']) {
+              continue;
+            }
             // Fill filename
-            fileInfo['filename'] = filesUploaded[i].key;
+            fileInfo['version_id'] = fileData.version_id;
+            fileInfo['filename'] = fileData.key;
             // Fill size
             fileInfo.filesize = [{}]; // init array
-            fileInfo.filesize[0].value = $scope.bytesToReadableString(filesUploaded[i].size);
+            fileInfo.filesize[0].value = $scope.bytesToReadableString(fileData.size);
             // Fill format
-            fileInfo.format = filesUploaded[i].mimetype;
+            fileInfo.format = fileData.mimetype;
             // Fill Date and DateType
             fileInfo.date = [{}]; // init array
             fileInfo.date[0].dateValue = new Date().toJSON().slice(0,10);
@@ -1756,12 +2038,12 @@ function toObject(arr) {
         });
       }
 
-      $scope.removeFileForm = function (filename) {
+      $scope.removeFileForm = function (version_id) {
         let model = $rootScope.recordsVM.invenioRecordsModel;
         $scope.searchFilemetaKey();
         $scope.filemeta_keys.forEach(function (filemeta_key) {
           model[filemeta_key] = model[filemeta_key].filter(function (fileInfo) {
-            return fileInfo.filename != filename;
+            return fileInfo.version_id != version_id;
           });
         });
       }
@@ -1836,7 +2118,7 @@ function toObject(arr) {
         if (f.completed) {
           $scope.initFilenameList();
           $scope.hiddenPubdate();
-          $scope.removeFileForm(f.key);
+          $scope.removeFileForm(f.version_id);
           $scope.updateNumFiles();
           $scope.storeFilesToSession();
           // Delay 1s after page render
@@ -2043,6 +2325,8 @@ function toObject(arr) {
         $("#array_flg").text(arrayFlg);
         $("#array_index").text(form.key[1]);
         // add by ryuu. end 20180410
+        //Reset data before show modal 'myModal'.
+        window.appAuthorSearch.namespace.resetSearchData();
         $('#myModal').modal('show');
       }
       // add by ryuu. start 20180410
@@ -2352,10 +2636,24 @@ function toObject(arr) {
           // Call API to validate input data base on json schema define
           let validateURL = '/api/items/validate';
           let isValid = false;
+          // Remove select value empty
+          let model = angular.copy($rootScope.recordsVM.invenioRecordsModel);
+          angular.forEach($rootScope.recordsVM.invenioRecordsModel, function (value, key) {
+            if (value instanceof Object) {
+              angular.forEach(value, function (_value, _key) {
+                if (_value == '') {
+                  delete model[key][_key];
+                }
+              });
+              if (angular.equals(model[key], {})) {
+                delete model[key];
+              }
+            }
+          });
           let request = InvenioRecordsAPI.prepareRequest(
             validateURL,
             'POST',
-            $rootScope.recordsVM.invenioRecordsModel,
+            model,
             $rootScope.recordsVM.invenioRecordsArgs,
             $rootScope.recordsVM.invenioRecordsEndpoints
           );
@@ -2628,10 +2926,60 @@ function toObject(arr) {
         return result;
       }
 
+      $scope.checkEitherRequired = function(depositionForm) {
+        let eitherRequireds = [];
+        if ($scope.error_list) {
+          eitherRequireds = $scope.error_list['either'];
+        }
+
+        if (!eitherRequireds) {
+          return true;
+        }
+
+        for (let i = 0; i < eitherRequireds.length; i++) {
+          if (eitherRequireds[i] instanceof Array) {
+            let check = true;
+            for (let y = 0; y < eitherRequireds[i].length; y++) {
+              let sub_item = eitherRequireds[i][y].split('.').pop();
+              if (sub_item in depositionForm && depositionForm[sub_item].$viewValue) {
+                check = check && true;
+              } else {
+                check = check && false;
+              }
+            }
+
+            if (check) {
+              return true;
+            }
+          } else {
+            let sub_item = eitherRequireds[i].split('.').pop();
+            if (sub_item in depositionForm && depositionForm[sub_item].$viewValue) {
+              return true;
+            }
+          }
+        }
+
+        return false;
+      }
+
       $scope.validateRequiredItem = function () {
         let schemaForm = $rootScope.recordsVM.invenioRecordsForm;
         let depositionForm = $scope.depositionForm;
-        let listItemErrors = []
+        let listItemErrors = [];
+        let eitherRequired = [];
+        let noEitherError = $scope.checkEitherRequired(depositionForm);
+        if (noEitherError && $scope.error_list && $scope.error_list['either']) {
+          eitherRequired = [];
+          $scope.error_list['either'].forEach(function(item) {
+            if (item instanceof Array) {
+              item.forEach(function(i) {
+                eitherRequired.push(i.split('.').pop());
+              });
+            } else {
+              eitherRequired.push(item.split('.').pop());
+            }
+          });
+        }
         for (let i = 0; i < schemaForm.length; i++) {
           let listSubItem = $scope.findRequiredItemInSchemaForm(schemaForm[i])
           if (listSubItem.length == 0) {
@@ -2644,10 +2992,27 @@ function toObject(arr) {
               } else {
                 depositionForm[listSubItem[j].id].$setViewValue("");
               }
-              listItemErrors.push(listSubItem[j].title);
+              if (noEitherError && eitherRequired) {
+                if (eitherRequired.indexOf(listSubItem[j].id) === -1) {
+                  listItemErrors.push(listSubItem[j].title);
+                }
+              } else {
+                listItemErrors.push(listSubItem[j].title);
+              }
             }
           }
         }
+
+        // Handle validate radio_version
+        if ($("#react-component-version").length != 0) {
+          let versionSelected = $("input[name='radioVersionSelect']:checked").val();
+          if (versionSelected == undefined) {
+            var versionHeader = $("#component-version-label").text().trim();
+            listItemErrors.push(versionHeader);
+            $("#react-component-version").addClass("has-error");
+          }
+        }
+
         if (listItemErrors.length > 0) {
           let message = $("#validate_error").val() + '<br/><br/>';
           message += listItemErrors[0];
@@ -2682,6 +3047,8 @@ function toObject(arr) {
           $scope.genTitleAndPubDate();
           this.mappingThumbnailInfor();
           let next_frame = $('#next-frame').val();
+          let next_frame_upgrade = $('#next-frame-upgrade').val();
+          let next_frame_edit = $('#next-frame-edit').val();
           if (enableContributor === 'True' && !this.registerUserPermission()) {
             // Do nothing
           } else if (enableFeedbackMail === 'True' && !this.saveFeedbackMailListCallback(currentActionId)) {
@@ -2707,7 +3074,26 @@ function toObject(arr) {
             let shareUserID = $rootScope.recordsVM.invenioRecordsModel['shared_user_id'];
             $scope.saveTilteAndShareUserID(title, shareUserID);
             $scope.updatePositionKey();
-            $rootScope.recordsVM.actionHandler(['index', 'PUT'], next_frame);
+            sessionStorage.removeItem(activityId);
+            let versionSelected = $("input[name='radioVersionSelect']:checked").val();
+            if ($rootScope.recordsVM.invenioRecordsEndpoints.initialization.includes("redirect")) {
+              if (versionSelected == "keep") {
+                $rootScope.recordsVM.actionHandler(
+                  ["edit", "PUT"],
+                  next_frame_edit
+                );
+              } else if (versionSelected == "update") {
+                $rootScope.recordsVM.actionHandler(
+                  [
+                    ["newversion", "PUT"],
+                    ["index_upgrade", "PUT"],
+                  ],
+                  next_frame_upgrade
+                );
+              }
+            } else {
+              $rootScope.recordsVM.actionHandler(['index', 'PUT'], next_frame);
+            }
           }
         }
       };
@@ -2871,6 +3257,7 @@ function toObject(arr) {
           }
         );
       }
+
       $scope.saveFeedbackMailListCallback = function (cur_action_id) {
         const activityID = $("#activity_id").text();
         const actionID = cur_action_id;// Item Registration's Action ID
@@ -2905,44 +3292,50 @@ function toObject(arr) {
           && !angular.isUndefined($rootScope.$$childHead.model)
           && !angular.equals([], $rootScope.$$childHead.model.thumbnailsInfor)) {
           // search thumbnail form
-          thumbnail_item = this.searchThumbnailForm("Thumbnail");
-          if (!angular.equals([], thumbnail_item)) {
+          let thumbnailItemKey = this.searchThumbnailForm();
+          let subThumbnailKey = 'subitem_thumbnail';
+          let subThumbnailLabelKey = 'thumbnail_label';
+          let subThumbnailUrlKey = 'thumbnail_url';
+          if (thumbnailItemKey) {
             var thumbnail_list = [];
 
             $rootScope.filesVM.files.forEach(function (file) {
               if (file.is_thumbnail) {
                 var file_form = {};
-                file_form[thumbnail_item[2][0]] = file.key;
+                file_form[subThumbnailLabelKey] = file.key;
                 var deposit_files_api = $("#deposit-files-api").val();
-                file_form[thumbnail_item[2][1]] = deposit_files_api + (file.links ? (file.links.version || file.links.self).split(deposit_files_api)[1] : '');
+                file_form[subThumbnailUrlKey] = deposit_files_api + (file.links ? (file.links.version || file.links.self).split(deposit_files_api)[1] : '');
                 thumbnail_list.push(file_form);
               }
             });
             if (thumbnail_list.length > 0) {
+              let recordModel = $rootScope.recordsVM.invenioRecordsModel;
               if ($rootScope.$$childHead.model.allowMultiple == 'True') {
-                $rootScope.recordsVM.invenioRecordsModel[thumbnail_item[0]] = [];
+                recordModel[thumbnailItemKey] = [];
                 var sub_item = {};
-                sub_item[thumbnail_item[1]] = thumbnail_list
-                $rootScope.recordsVM.invenioRecordsModel[thumbnail_item[0]].push(sub_item);
+                sub_item[subThumbnailKey] = thumbnail_list;
+                recordModel[thumbnailItemKey].push(sub_item);
               } else {
-                $rootScope.recordsVM.invenioRecordsModel[thumbnail_item[0]] = {};
-                $rootScope.recordsVM.invenioRecordsModel[thumbnail_item[0]][thumbnail_item[1]] = thumbnail_list;
+                recordModel[thumbnailItemKey] = {};
+                recordModel[thumbnailItemKey][subThumbnailKey] = thumbnail_list;
               }
             }
           }
         }
       }
 
-      $scope.searchThumbnailForm = function (title) {
-        var thumbnail_attrs = [];
-        $rootScope.recordsVM.invenioRecordsForm.forEach(function (RecordForm) {
-          if (RecordForm.title == title) {
-            var properties = RecordForm.schema.properties || RecordForm.schema.items.properties;
-            var subItem = Object.keys(properties)[0] || 'subitem_thumbnail';
-            thumbnail_attrs = [RecordForm.key[0], subItem, Object.keys(properties[subItem].items.properties)];
+      $scope.searchThumbnailForm = function () {
+        let thumbnailItemKey = '';
+        let recordSchema = $rootScope.recordsVM.invenioRecordsSchema;
+        for (let key in recordSchema.properties) {
+          let value = recordSchema.properties[key];
+          var properties = value.properties ? value.properties : (value.items ? value.items.properties : [])
+          if (Object.keys(properties).indexOf('subitem_thumbnail') >= 0) {
+            thumbnailItemKey = key;
+            break;
           }
-        });
-        return thumbnail_attrs;
+        }
+        return thumbnailItemKey;
       }
 
       $scope.unattachedSystemProperties = function () {
@@ -3015,11 +3408,23 @@ function toObject(arr) {
             allowMultiple: $("#allow-thumbnail-flg").val(),
         };
 
-        // set current data thumbnail if has
-        let thumbnailsInfor = $("form[name='uploadThumbnailForm']").data('files-thumbnail');
-        if (thumbnailsInfor.length > 0) {
-          $scope.model.thumbnailsInfor = thumbnailsInfor;
-        }
+
+        $scope.$on('invenio.records.loading.stop', function () {
+          let thumbnailsInfor;
+          let files = $rootScope.filesVM.files;
+          if (Array.isArray(files) && files.length > 0) {
+            thumbnailsInfor = files.filter(function (file) {
+              return (file.hasOwnProperty('is_thumbnail') && file['is_thumbnail'])
+            });
+          } else {
+            thumbnailsInfor = $("form[name='uploadThumbnailForm']").data('files-thumbnail');
+          }
+          // set current data thumbnail if has
+          if (thumbnailsInfor.length > 0) {
+            $scope.model.thumbnailsInfor = thumbnailsInfor;
+          }
+        });
+
         // click input upload files
         $scope.uploadThumbnail = function() {
           if ($rootScope.filesVM.invenioFilesEndpoints.bucket === undefined) {
@@ -3029,7 +3434,10 @@ function toObject(arr) {
                 data: {},
                 headers: ($rootScope.filesVM.invenioFilesArgs.headers !== undefined) ? $rootScope.filesVM.invenioFilesArgs.headers : {}
             }).then(function success(response) {
-                $rootScope.filesVM.invenioFilesEndpoints = response.data.links;
+                $rootScope.filesVM.invenioFilesArgs.url = response.data.links.bucket;
+                $rootScope.$broadcast(
+                  'invenio.records.endpoints.updated', response.data.links
+                );
             }, function error(response) {
             });
           }
@@ -3037,20 +3445,42 @@ function toObject(arr) {
               document.getElementById('selectThumbnail').click();
           }, 0);
         };
+
+        $scope.updateFileList = function(removeFile) {
+          let model = $scope.model;
+          model['thumbnailsInfor'] = model['thumbnailsInfor'].filter(function(fileInfo) {
+            return !(fileInfo.lastModified === removeFile.lastModified
+              && fileInfo.key === removeFile.key);
+          });
+        }
+
+        // Get file links
+        $scope.getFileLinks = function(file) {
+          let fileLink = $rootScope.filesVM.files.filter(function (fileInfo) {
+            return fileInfo.is_thumbnail && fileInfo.key === file.key;
+          })
+          let links;
+          if (Array.isArray(fileLink) && fileLink.length > 0) {
+            links = fileLink[0].links;
+          }
+          return links;
+        }
+
         // remove file
-        $scope.removeThumbnail = function(file) {
+        $scope.removeThumbnail = function (file) {
           if (angular.isUndefined(file.links)) {
-            var indexOfFile = _.indexOf($scope.model.thumbnailsInfor, file)
-            if (!angular.isUndefined($rootScope.filesVM.files[indexOfFile])) {
-              file.links = $rootScope.filesVM.files[indexOfFile].links;
+            let links = $scope.getFileLinks(file);
+            if (links) {
+              file.links = links;
             } else {
               console.log('File not found!');
               return;
             }
           }
           $rootScope.filesVM.remove(file);
-          $scope.model.thumbnailsInfor.splice(indexOfFile || $scope.model.thumbnailsInfor.indexOf(file), 1);
+          $scope.updateFileList(file);
         };
+
     }).$inject = [
       '$scope',
       '$rootScope',

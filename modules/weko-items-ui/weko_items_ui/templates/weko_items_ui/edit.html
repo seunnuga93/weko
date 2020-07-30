@@ -100,10 +100,14 @@
                     </button>
                   </li>
                   <input type="hidden" id="next-frame" value="r">
+                  <!-- 
+                    <input type="hidden" id="next-frame-upgrade" value="iframe_tree_edit">
+                    <input type="hidden" id="next-frame-edit" value="iframe_tree_upgrade"> 
+                  -->
                   {%- if pid %}
                   <li>
                     <button ng-disabled="recordsVM.invenioRecordsLoading"
-                      ng-hide="!recordsVM.invenioRecordsEndpoints.initialization" class="btn btn-danger delete-button"
+                      ng-hide="true" class="btn btn-danger delete-button"
                       ng-click="recordsVM.actionHandler(['self', 'DELETE'],'ret')">
                       <span class="glyphicon glyphicon-trash"></span>
                       {{_('Delete')}}
@@ -247,7 +251,7 @@
                     {%- if pid %}
                     <li>
                       <button ng-disabled="recordsVM.invenioRecordsLoading"
-                        ng-hide="!recordsVM.invenioRecordsEndpoints.initialization" class="btn btn-danger delete-button"
+                        ng-hide="true" class="btn btn-danger delete-button"
                         ng-click="recordsVM.actionHandler(['self', 'DELETE'], 'ret')">
                         <span class="glyphicon glyphicon-trash"></span>
                         {{_('Delete')}}

@@ -82,8 +82,11 @@ WEKO_SCHEMA_DDI_SCHEMA_NAME = "ddi_mapping"
 """DDI schema name"""
 
 WEKO_SCHEMA_UI_LIST_SCHEME = ['e-Rad', 'NRID', 'ORCID', 'ISNI', 'VIAF', 'AID',
-                              'Kakenhi', 'Ringgolf', 'GRID']
+                              'kakenhi', 'Ringgold', 'GRID']
 """ List of scheme """
 
 WEKO_SCHEME_FIRST_INDEX = 0
 """ Name Identifior Item first index """
+
+WEKO_SCHEMA_RECORD_URL = "{}records/{}"
+"""Pattern of url record."""

@@ -24,7 +24,7 @@ services:
   web:
     restart: "always"
     build: .
-    command: /bin/bash -c "rm -f /code/celeryd.pid; celery worker -c 2 -A invenio_app.celery --loglevel=INFO -B -D && uwsgi --ini /code/scripts/uwsgi.ini"
+    command: /bin/bash -c "rm -f /code/celeryd.pid; celery worker -A invenio_app.celery --loglevel=INFO -B -D && uwsgi --ini /code/scripts/uwsgi.ini"
     environment:
       - PATH=/home/invenio/.virtualenvs/invenio/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
       - VIRTUALENVWRAPPER_PYTHON=/usr/local/bin/python
@@ -49,13 +49,16 @@ services:
       - INVENIO_ROLE_COMMUNITY=Community Administrator
       - FLASK_DEBUG=0
       - SEARCH_INDEX_PREFIX=tenant1
+      - INVENIO_DB_POOL_CLASS=QueuePool
     volumes:
       - weko3_data:/var/tmp
       - static_data:/home/invenio/.virtualenvs/invenio/var/instance/static
       - type: bind
         source: .
         target: /code
-      - /code/modules/invenio-oauth2server/invenio_oauth2server.egg-info 
+      - /code/modules/invenio-admin/invenio_admin.egg-info
+      - /code/modules/invenio-app/invenio_app.egg-info
+      - /code/modules/invenio-oauth2server/invenio_oauth2server.egg-info
       - /code/modules/invenio-files-rest/invenio_files_rest.egg-info
       - /code/modules/invenio-s3/invenio_s3.egg-info
       - /code/modules/invenio-oaiharvester/invenio_oaiharvester.egg-info
@@ -69,6 +72,8 @@ services:
       - /code/modules/invenio-deposit/invenio_deposit.egg-info
       - /code/modules/invenio-resourcesyncserver/invenio_resourcesyncserver.egg-info
       - /code/modules/invenio-resourcesyncclient/invenio_resourcesyncclient.egg-info
+      - /code/modules/invenio-queues/invenio_queues.egg-info
+      - /code/modules/invenio-db/invenio_db.egg-info
       - /code/modules/weko-theme/weko_theme.egg-info
       - /code/modules/weko-itemtypes-ui/weko_itemtypes_ui.egg-info
       - /code/modules/weko-items-ui/weko_items_ui.egg-info
@@ -126,7 +131,7 @@ services:
     volumes:
       - es-data:/usr/share/elasticsearch/data
     environment:
-      - "ES_JAVA_OPTS=-Xms2048m -Xmx2048m"
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
     ports:
       - "29201:9200"
       - "29301:9300"

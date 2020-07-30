@@ -76,6 +76,7 @@ def create():
     db.session.commit()
     return jsonify(msg=_('Success'))
 
+
 # add by ryuu. at 20180820 start
 @blueprint_api.route("/edit", methods=['POST'])
 @login_required
@@ -264,6 +265,8 @@ def mapping():
             if j.get('authorIdShowFlg') == 'true':
                 scheme, uri = get_info_author_id(int(j['idType']))
                 author_id = j.get('authorId')
+                if author_id and uri[-2:] == '##':
+                    uri = uri.replace('##', author_id)
                 tmp = {
                     'nameIdentifier': author_id,
                     'nameIdentifierScheme': scheme,
